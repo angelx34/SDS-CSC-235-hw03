@@ -298,3 +298,195 @@ let myData = [
       "total_millions": "52"
     }
   ]
+
+
+const familyCountsMap = d3.rollup(
+  myData,
+  (v) => v.length,
+  (d) => d.family
+);
+
+const familyCounts = Array.from(familyCountsMap, ([family, count]) => ({
+  family,
+  count,
+})).sort((a, b) => d3.descending(a.count, b.count));
+
+const totalLanguages = d3.sum(familyCounts, (d) => d.count);
+
+(function makeBarChart() {
+  const container = d3.select("#bar-chart");
+
+  const width = 760;
+  const height = 420;
+  const margin = { top: 45, right: 20, bottom: 110, left: 70 };
+
+  const svg = container
+    .append("svg")
+    .attr("viewBox", `0 0 ${width} ${height}`);
+
+  svg
+    .append("text")
+    .attr("x", margin.left)
+    .attr("y", 26)
+    .style("font-weight", "600")
+    .text("Frequency of Language Families");
+
+  const g = svg
+    .append("g")
+    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+  const innerWidth = width - margin.left - margin.right;
+  const innerHeight = height - margin.top - margin.bottom;
+
+  const x = d3
+    .scaleBand()
+    .domain(familyCounts.map((d) => d.family))
+    .range([0, innerWidth])
+    .padding(0.15);
+
+  const y = d3
+    .scaleLinear()
+    .domain([0, d3.max(familyCounts, (d) => d.count)])
+    .nice()
+    .range([innerHeight, 0]);
+
+  g.append("g")
+    .attr("class", "axis")
+    .attr("transform", `translate(0,${innerHeight})`)
+    .call(d3.axisBottom(x))
+    .selectAll("text")
+    .attr("transform", "rotate(-35)")
+    .style("text-anchor", "end");
+
+  g.append("g")
+    .attr("class", "axis")
+    .call(d3.axisLeft(y).ticks(6).tickFormat(d3.format("d")));
+
+  svg
+    .append("text")
+    .attr("class", "label")
+    .attr("x", margin.left + innerWidth / 2)
+    .attr("y", height - 18)
+    .attr("text-anchor", "middle")
+    .text("Language family");
+
+  svg
+    .append("text")
+    .attr("class", "label")
+    .attr("transform", "rotate(-90)")
+    .attr("x", -(margin.top + innerHeight / 2))
+    .attr("y", 18)
+    .attr("text-anchor", "middle")
+    .text("Count of languages");
+
+  let selectedFamily = null;
+
+  const bars = g
+    .selectAll("rect")
+    .data(familyCounts, (d) => d.family)
+    .join("rect")
+    .attr("class", "bar")
+    .attr("x", (d) => x(d.family))
+    .attr("y", (d) => y(d.count))
+    .attr("width", x.bandwidth())
+    .attr("height", (d) => innerHeight - y(d.count))
+    .attr("fill", "currentColor")
+    .attr("opacity", 0.65);
+
+  bars.on("click", (event, d) => {
+    selectedFamily = selectedFamily === d.family ? null : d.family;
+
+    bars.classed("selected", (b) => b.family === selectedFamily);
+
+    bars.attr("opacity", (b) => {
+      if (selectedFamily === null) return 0.65;
+      return b.family === selectedFamily ? 0.95 : 0.25;
+    });
+  });
+})();
+
+(function makePieChart() {
+  const container = d3.select("#pie-chart");
+  const info = d3.select("#pie-info"); 
+
+  const width = 520;
+  const height = 420;
+  const radius = Math.min(width, height) / 2 - 30;
+
+  const svg = container
+    .append("svg")
+    .attr("viewBox", `0 0 ${width} ${height}`);
+
+  svg
+    .append("text")
+    .attr("x", 18)
+    .attr("y", 26)
+    .style("font-weight", "600")
+    .text("Proportion of Language Families");
+
+  const g = svg
+    .append("g")
+    .attr("transform", `translate(${width / 2},${height / 2 + 10})`);
+
+  const color = d3
+    .scaleOrdinal()
+    .domain(familyCounts.map((d) => d.family))
+    .range(d3.schemeTableau10.concat(d3.schemeSet3));
+
+  const pie = d3
+    .pie()
+    .sort(null)
+    .value((d) => d.count);
+
+  const arc = d3.arc().innerRadius(0).outerRadius(radius);
+  const arcLabel = d3
+    .arc()
+    .innerRadius(radius * 0.65)
+    .outerRadius(radius * 0.65);
+
+  const pieData = pie(familyCounts);
+
+  let selectedSlice = null;
+
+  const slices = g
+    .selectAll("path")
+    .data(pieData, (d) => d.data.family)
+    .join("path")
+    .attr("class", "slice")
+    .attr("d", arc)
+    .attr("fill", (d) => color(d.data.family))
+    .attr("opacity", 0.9);
+
+
+  g.selectAll("text.sliceLabel")
+    .data(pieData, (d) => d.data.family)
+    .join("text")
+    .attr("class", "label sliceLabel")
+    .attr("transform", (d) => `translate(${arcLabel.centroid(d)})`)
+    .attr("text-anchor", "middle")
+    .style("font-size", "11px")
+    .style("pointer-events", "none")
+    .text((d) => d.data.family);
+
+
+  slices.on("click", (event, d) => {
+    const family = d.data.family;
+    const proportion = d.data.count / totalLanguages;
+
+    selectedSlice = selectedSlice === family ? null : family;
+
+    slices.classed("selected", (s) => s.data.family === selectedSlice);
+
+    if (selectedSlice === null) {
+      info.text("Click a slice to display its family + proportion here.");
+      slices.attr("opacity", 0.9);
+      return;
+    }
+
+    slices.attr("opacity", (s) => (s.data.family === selectedSlice ? 0.95 : 0.35));
+
+    info.text(
+      `${family} — ${(proportion * 100).toFixed(1)}% of languages (${d.data.count}/${totalLanguages}).`
+    );
+  });
+})();
